@@ -5,8 +5,12 @@ using JSON
 using MbedTLS
 using Base64
 using Random
-using SHA 
+using SHA
 using JWTs
+
+# Import Reseau.TLS for HTTP v2 custom certificate support
+import Reseau
+const TLS = Reseau.TLS
 
 const DEFAULT_SCOPES = ["openid", "profile", "email"]
 const DEFAULT_STATE_TIMEOUT_SECS = 60
@@ -43,19 +47,40 @@ struct OIDCCtx
         endswith(issuer, "/") || (issuer = issuer * "/")
         openid_config_url = issuer * ".well-known/openid-configuration"
         http_tls_opts = Dict{Symbol,Any}()
-        http_tls_opts[:socket_type_tls] = MbedTLS.SSLContext
 
         if verify !== nothing
             http_tls_opts[:require_ssl_verification] = verify
         end
 
         if cacrt !== nothing
-            if isa(cacrt, String)
-                cacrt = isfile(cacrt) ? MbedTLS.crt_parse_file(cacrt) : MbedTLS.crt_parse(cacrt)
+            if isa(cacrt, MbedTLS.CRT)
+                error("cacrt must be a file path (String) in HTTP v2; MbedTLS.CRT objects are no longer supported")
             end
-            conf = MbedTLS.SSLConfig(verify === nothing || verify)
-            MbedTLS.ca_chain!(conf, cacrt)
-            http_tls_opts[:sslconfig] = conf
+            if !isfile(cacrt)
+                error("cacrt must be a path to an existing certificate file; got: $cacrt")
+            end
+            # Create custom TLS.Config with CA file
+            tls_config = TLS.Config(
+                nothing,  # server_name
+                verify === nothing || verify,  # verify_peer
+                verify === nothing || verify,  # verify_hostname
+                TLS.ClientAuthMode.NoClientCert,  # client_auth
+                nothing,  # cert_file
+                nothing,  # key_file
+                cacrt,    # ca_file
+                nothing,  # client_ca_file
+                String[], # alpn_protocols
+                UInt16[], # curve_preferences
+                Int64(30_000_000_000),  # handshake_timeout_ns (30 seconds)
+                TLS.TLS1_2_VERSION,  # min_version
+                nothing,  # max_version
+                false,    # session_tickets_disabled
+                64,       # session_cache_capacity
+            )
+            # Create custom transport with TLS config
+            transport = HTTP.Transport(; tls_config)
+            # Create custom client
+            http_tls_opts[:client] = HTTP.Client(; transport)
         end
 
         # fetch and store the openid config, along with the additional args for SSL
