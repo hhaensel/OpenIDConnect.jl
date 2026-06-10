@@ -2,7 +2,6 @@ module OpenIDConnect
 
 using HTTP
 using JSON
-using MbedTLS
 using Base64
 using Random
 using SHA
@@ -41,7 +40,7 @@ struct OIDCCtx
     random_device::RandomDevice
 
     function OIDCCtx(issuer::String, redirect_uri::String, client_id::String, client_secret::String, scopes::Vector{String}=DEFAULT_SCOPES;
-                        verify::Union{Nothing,Bool}=nothing, cacrt::Union{Nothing,String,MbedTLS.CRT}=nothing,
+                        verify::Union{Nothing,Bool}=nothing, cacrt::Union{Nothing,String}=nothing,
                         state_timeout_secs::Int=DEFAULT_STATE_TIMEOUT_SECS, allowed_skew_secs::Int=DEFAULT_SKEW_SECS, key_refresh_secs::Int=DEFAULT_KEY_REFRESH_SECS,
                         random_device::RandomDevice=RandomDevice())
         endswith(issuer, "/") || (issuer = issuer * "/")
@@ -53,9 +52,6 @@ struct OIDCCtx
         end
 
         if cacrt !== nothing
-            if isa(cacrt, MbedTLS.CRT)
-                error("cacrt must be a file path (String) in HTTP v2; MbedTLS.CRT objects are no longer supported")
-            end
             if !isfile(cacrt)
                 error("cacrt must be a path to an existing certificate file; got: $cacrt")
             end
