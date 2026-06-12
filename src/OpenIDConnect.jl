@@ -47,19 +47,19 @@ struct OIDCCtx
         openid_config_url = issuer * ".well-known/openid-configuration"
         http_tls_opts = Dict{Symbol,Any}()
 
-        if verify !== nothing
-            http_tls_opts[:require_ssl_verification] = verify
-        end
-
         if cacrt !== nothing
             if !isfile(cacrt)
                 error("cacrt must be a path to an existing certificate file; got: $cacrt")
             end
-            # Create custom TLS.Config with CA file
+            # A custom CA requires a custom HTTP.Client built around a Reseau TLS.Config.
+            # The verify intent is baked into the TLS.Config below (verify_peer/verify_hostname);
+            # we must NOT also pass require_ssl_verification, since HTTP v2 throws when that
+            # keyword is combined with an explicit client.
+            verify_peer = verify === nothing || verify
             tls_config = TLS.Config(
                 nothing,  # server_name
-                verify === nothing || verify,  # verify_peer
-                verify === nothing || verify,  # verify_hostname
+                verify_peer,  # verify_peer
+                verify_peer,  # verify_hostname
                 TLS.ClientAuthMode.NoClientCert,  # client_auth
                 nothing,  # cert_file
                 nothing,  # key_file
@@ -77,6 +77,9 @@ struct OIDCCtx
             transport = HTTP.Transport(; tls_config)
             # Create custom client
             http_tls_opts[:client] = HTTP.Client(; transport)
+        elseif verify !== nothing
+            # No custom CA: control verification through the per-request keyword on the default client.
+            http_tls_opts[:require_ssl_verification] = verify
         end
 
         # fetch and store the openid config, along with the additional args for SSL
